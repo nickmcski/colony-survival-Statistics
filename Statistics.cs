@@ -1,23 +1,24 @@
-﻿using NetworkUI;
-using NetworkUI.Items;
-using UnityEngine;
-using Shared;
+﻿using HarmonyLib;
 using Jobs;
-using static ModLoader;
-using System.Collections.Generic;
-using Recipes;
-using NPC;
-using System;
-using Pipliz.JSON;
-using Pipliz;
-using System.Reflection;
-using HarmonyLib;
 using ModLoaderInterfaces;
+using NetworkUI;
+using NetworkUI.Items;
+using NPC;
+using Pipliz;
+using Pipliz.JSON;
+using Recipes;
+using Shared;
+using Shared.Stats;
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine;
+using static ModLoader;
 
 namespace grasmanek94.Statistics
 {
     [ModManager]
-    public class Statistics : IOnConstructTooltipUI, IOnAssemblyLoaded, IOnNPCDied, IOnNPCLoaded, IOnNPCJobChanged, IOnNPCRecruited, IOnNPCCraftedRecipe
+    public class Statistics : IOnConstructTooltipUI, IOnAssemblyLoaded, IOnNPCDied, IOnNPCLoaded, IOnNPCJobChanged, IOnNPCRecruited, IOnNPCCraftedRecipe, IOnSendingStatisticsData, IOnNPCGathered
     {
         static Dictionary<Colony, ColonyStatistics> colonyStats;
 
@@ -33,7 +34,7 @@ namespace grasmanek94.Statistics
         static string PrintSingleStat(float value)
         {
             float absValue = Mathf.Abs(value);
-            if(absValue < 1.0f)
+            if (absValue < 1.0f)
             {
                 return value.ToString("0.00");
             }
@@ -63,13 +64,13 @@ namespace grasmanek94.Statistics
             data.menu.Items.Add(new Label(new LabelData("Created " + PrintSingleStat(stat.AverageProduced) + ", Used " + PrintSingleStat(stat.AverageConsumed), TextAnchor.MiddleLeft, 13, LabelData.ELocalizationType.Sentence), -1));
             data.menu.Items.Add(new Label(new LabelData(PrintSingleStat(stat.AverageProducers) + " producers, " + PrintSingleStat(stat.AverageConsumers) + " consumers", TextAnchor.MiddleLeft, 13, LabelData.ELocalizationType.Sentence), -1));
             data.menu.Items.Add(new Label(new LabelData("Stock " + PrintSingleStat(stat.AverageInventoryAdded) + " added, " + PrintSingleStat(stat.AverageInventoryRemoved) + " removed", TextAnchor.MiddleLeft, 13, LabelData.ELocalizationType.Sentence), -1));
-            
-            if(stat.TradedIn != 0 || stat.TradedOut != 0)
+
+            if (stat.TradedIn != 0 || stat.TradedOut != 0)
             {
                 data.menu.Items.Add(new Label(new LabelData("Trade +" + PrintSingleStat(stat.AverageTradedIn) + " / -" + PrintSingleStat(stat.AverageTradedOut), TextAnchor.MiddleLeft, 13, LabelData.ELocalizationType.Sentence), -1));
             }
 
-            if(stat.UsedForFood != 0)
+            if (stat.UsedForFood != 0)
             {
                 data.menu.Items.Add(new Label(new LabelData("Food Use: " + PrintSingleStat(stat.AverageUsedForFood), TextAnchor.MiddleLeft, 13, LabelData.ELocalizationType.Sentence), -1));
             }
@@ -81,9 +82,9 @@ namespace grasmanek94.Statistics
             {
                 return;
             }
-            
+
             TimedItemStatistics stats = GetColonyStats(player.ActiveColony).GetTimedItemStats(data.hoverItem);
-      
+
             var statlist = stats.Averages();
 
             foreach (var stat in statlist)
@@ -98,24 +99,24 @@ namespace grasmanek94.Statistics
         {
             INPCTypeSettings npcSettings;
 
-            if (npc == null || job == null || 
-                ServerManager.RecipeStorage == null || 
+            if (npc == null || job == null ||
+                ServerManager.RecipeStorage == null ||
                 NPCType.NPCTypes == null || npc.Colony == null ||
                 !NPCType.NPCTypes.TryGetValue(job.NPCType, out npcSettings))
             {
                 return;
             }
-            
+
             List<Recipe> recipes;
 
             bool found = ServerManager.RecipeStorage.TryGetRecipes(npcSettings.KeyName, out recipes);
 
-            if(found)
+            if (found)
             {
                 var colonyStats = GetColonyStats(npc.Colony);
                 foreach (var recipe in recipes)
                 {
-                    foreach(var requirement in recipe.Requirements)
+                    foreach (var requirement in recipe.Requirements)
                     {
                         colonyStats.GetTimedItemStats(requirement.Type).AddConsumer(npc.ID);
                     }
@@ -240,9 +241,9 @@ namespace grasmanek94.Statistics
 
             ColonyStatistics stats = GetColonyStats(job.NPC.Colony);
 
-            if(recipe != null)
+            if (recipe != null)
             {
-                foreach(var item in recipe.Requirements)
+                foreach (var item in recipe.Requirements)
                 {
                     var itemStat = stats.GetTimedItemStats(item.Type);
                     itemStat.Consume(item.Amount);
@@ -272,13 +273,13 @@ namespace grasmanek94.Statistics
 
         public static ColonyStatistics GetColonyStats(Colony colony)
         {
-            if(colony == null)
+            if (colony == null)
             {
                 return null;
             }
 
             ColonyStatistics stats;
-            if(!colonyStats.TryGetValue(colony, out stats))
+            if (!colonyStats.TryGetValue(colony, out stats))
             {
                 stats = new ColonyStatistics();
                 colonyStats.Add(colony, stats);
@@ -287,5 +288,90 @@ namespace grasmanek94.Statistics
             return stats;
         }
 
+        public const string PRODUCTION_KEY = "grasmanek94.Statistics.production";
+        public const string CONSUMPTION_KEY = "grasmanek94.Statistics.consumption";
+        public const string MEALS_KEY = "grasmanek94.Statistics.meals";
+
+        public void OnSendingStatisticsData(ColonyStats.SharedStatisticsGatherer stats)
+        {
+            stats.DataPacket.StatisticTypes.Add(new SharedStatisticsData.DataDefinition(new SharedStatisticsData.DataKey(PRODUCTION_KEY), "Production", SharedStatisticsData.DataDefinition.EShownIntegerType.DeltasSum, SharedStatisticsData.DataDefinition.EGraphSortType.DeltasSum, SharedStatisticsData.DataDefinition.EScaleType.Linear, false));
+            stats.DataPacket.StatisticTypes.Add(new SharedStatisticsData.DataDefinition(new SharedStatisticsData.DataKey(CONSUMPTION_KEY), "Consumption", SharedStatisticsData.DataDefinition.EShownIntegerType.DeltasSum, SharedStatisticsData.DataDefinition.EGraphSortType.DeltasSum, SharedStatisticsData.DataDefinition.EScaleType.Linear, false));
+            stats.DataPacket.StatisticTypes.Add(new SharedStatisticsData.DataDefinition(new SharedStatisticsData.DataKey(MEALS_KEY), "Meals", SharedStatisticsData.DataDefinition.EShownIntegerType.DeltasSum, SharedStatisticsData.DataDefinition.EGraphSortType.DeltasSum, SharedStatisticsData.DataDefinition.EScaleType.Linear, false));
+
+            if (stats.RequestedStatisticType.Is(PRODUCTION_KEY))
+            {
+                //ref ProductionStatsTracker.ProductionTimePeriod local = ref getTracker(stats.Colony).TimePeriods.GetAt(stats.RequestedTimePeriodIndex);
+                ColonyStatistics statsTracker = Statistics.GetColonyStats(stats.Colony);
+                if (statsTracker != null)
+                {
+                    foreach (KeyValuePair<ushort, TimedItemStatistics> itemStats in statsTracker.itemStatistics)
+                    {
+                        if (itemStats.Value.AllTimeStatistics.Produced == 0)
+                            continue;
+                        ushort item1 = itemStats.Key;
+                        GraphItem item2 = itemStats.Value.GetGraphProduced();
+                        List<SharedStatisticsData.DataEntry> entries = stats.DataPacket.Entries;
+                        SharedStatisticsData.DataEntry dataEntry = new SharedStatisticsData.DataEntry()
+                        {
+                            GraphItem = item2,
+                            IconType = item1,
+                            UniqueHighlightData = item1,
+                            FilterItemType = item1
+                        };
+                        entries.Add(dataEntry);
+                    }
+                }
+            }
+            if (stats.RequestedStatisticType.Is(CONSUMPTION_KEY))
+            {
+                ColonyStatistics statsTracker = Statistics.GetColonyStats(stats.Colony);
+                if (statsTracker != null)
+                {
+                    foreach (KeyValuePair<ushort, TimedItemStatistics> itemStats in statsTracker.itemStatistics)
+                    {
+
+                        if (itemStats.Value.AllTimeStatistics.Consumed == 0)
+                            continue;
+                        //ValueTuple<ushort, TimedItemStatistics> atIndex = statsTracker.itemStatistics.GetAtIndex(i);
+                        ushort item1 = itemStats.Key;
+                        GraphItem item2 = itemStats.Value.GetGraphConsumed();
+                        List<SharedStatisticsData.DataEntry> entries = stats.DataPacket.Entries;
+                        SharedStatisticsData.DataEntry dataEntry = new SharedStatisticsData.DataEntry()
+                        {
+                            GraphItem = item2,
+                            IconType = item1,
+                            UniqueHighlightData = item1,
+                            FilterItemType = item1
+                        };
+                        entries.Add(dataEntry);
+                    }
+                }
+            }
+            if (stats.RequestedStatisticType.Is(MEALS_KEY))
+            {
+                ColonyStatistics statsTracker = Statistics.GetColonyStats(stats.Colony);
+                if (statsTracker != null)
+                {
+                    foreach (KeyValuePair<ushort, TimedItemStatistics> itemStats in statsTracker.itemStatistics)
+                    {
+
+                        if (itemStats.Value.AllTimeStatistics.UsedForFood == 0)
+                            continue;
+                        //ValueTuple<ushort, TimedItemStatistics> atIndex = statsTracker.itemStatistics.GetAtIndex(i);
+                        ushort item1 = itemStats.Key;
+                        GraphItem item2 = itemStats.Value.GetMealsProduced();
+                        List<SharedStatisticsData.DataEntry> entries = stats.DataPacket.Entries;
+                        SharedStatisticsData.DataEntry dataEntry = new SharedStatisticsData.DataEntry()
+                        {
+                            GraphItem = item2,
+                            IconType = item1,
+                            UniqueHighlightData = item1,
+                            FilterItemType = item1
+                        };
+                        entries.Add(dataEntry);
+                    }
+                }
+            }
+        }
     }
 }

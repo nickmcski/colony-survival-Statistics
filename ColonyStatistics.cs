@@ -4,7 +4,7 @@ namespace grasmanek94.Statistics
 {
     public class ColonyStatistics
     {
-        Dictionary<ushort, TimedItemStatistics> itemStatistics;
+        public Dictionary<ushort, TimedItemStatistics> itemStatistics;
         TimedItemStatistics npcStatistics;
 
         public ColonyStatistics()
